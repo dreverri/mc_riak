@@ -97,7 +97,7 @@ init([new, O]) ->
   {ok, #state{object=O}};
 
 init([open, O]) ->
-  {M, D} = merge_contents(O),
+  {M, D} = read_content(O),
   {ok, #state{doc=D, metadata=M, object=O}};
 
 init([]) ->
@@ -137,9 +137,9 @@ handle_call({get, Key}, _From, State=#state{doc=Doc}) ->
 %% Merge the returned contents
 %% Update State
 handle_call({save, Options}, _From, State=#state{doc=Doc, metadata=Metadata, object=Object}) ->
-  O1 = update_object(Object, Metadata, Doc),
+  O1 = write_content(Object, Metadata, Doc),
   {ok, O2} = mc_riak_client:put(O1, [return_body|Options]),
-  {M1, D1} = merge_contents(O2),
+  {M1, D1} = read_content(O2),
   {reply, ok, State#state{doc=D1, metadata=M1, object=O2}};
 
 handle_call({delete, Options}, _From, State=#state{object=Object}) ->
@@ -205,70 +205,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-%% Encode the doc to JSON
-%% @spec encode(Doc) -> {ok, Value, ContentType}
-encode(Doc) ->
-  {ok, mochijson2:encode({struct, dict:to_list(Doc)}), <<"application/json">>}.
 
-%% Decode the doc from JSON
-%% @spec decode(Value) -> {ok, Doc}
-decode(Value) ->
-  {struct, PropList} = mochijson2:decode(Value),
-  {ok, dict:from_list(PropList)}.
+%% TODO: Make read, write functions pluggable
+read_content(Object) ->
+  mc_riak_doc_rw:read_json(Object).
 
-%% Update the object value (including content-type)
-%% Update the metadata
-update_object(Object, Metadata, Doc) ->
-  {ok, Value, CType} = encode(Doc),
-  O1 = riakc_obj:update_value(Object, Value, CType),
-  riakc_obj:update_metadata(O1, Metadata).
-
-%% Return most recent content (last write wins)
-%% Merging will have no affect if allow_mult is false
-%% TODO: Make merging function pluggable
-%% @spec merge_contents(Object) -> {Metadata, Doc}
-merge_contents(Object) ->
-  DecodedContents = lists:foldl(fun({M, V}, AccIn) ->
-                                    {ok, Doc} = decode(V),
-                                    [{M, Doc}|AccIn]
-                                end,
-                                [], riakc_obj:get_contents(Object)),
-  merge_decoded_contents(DecodedContents).
-
-%% @spec merge_decoded_contents(DecodedContents) -> {Metadata, Doc}
-merge_decoded_contents(DecodedContents) ->
-  hd(lists:sort(fun compare_content_dates/2, DecodedContents)).
-
-%% date related functions below stolen from riak
-compare_content_dates({M1, _},{M2, _}) ->
-    % true if M1 was modifed later than M2
-    compare_dates(
-      dict:fetch(<<"X-Riak-Last-Modified">>, M1),
-      dict:fetch(<<"X-Riak-Last-Modified">>, M2)).
-
-%% @spec compare_dates(string(), string()) -> boolean()
-%% @doc Compare two RFC1123 date strings or two now() tuples (or one
-%%      of each).  Return true if date A is later than date B.
-compare_dates(A={_,_,_}, B={_,_,_}) ->
-    %% assume 3-tuples are now() times
-    A > B;
-compare_dates(A, B) when is_list(A) ->
-    %% assume lists are rfc1123 date strings
-    compare_dates(rfc1123_to_now(A), B);
-compare_dates(A, B) when is_list(B) ->
-    compare_dates(A, rfc1123_to_now(B)).
-
-%% 719528 days from Jan 1, 0 to Jan 1, 1970
-%%  *86400 seconds/day
--define(SEC_TO_EPOCH, 62167219200).
-
-rfc1123_to_now(String) when is_list(String) ->
-    GSec = calendar:datetime_to_gregorian_seconds(
-             httpd_util:convert_request_date(String)),
-    ESec = GSec-?SEC_TO_EPOCH,
-    Sec = ESec rem 1000000,
-    MSec = ESec div 1000000,
-    {MSec, Sec, 0}.
+write_content(Object, Metadata, Doc) ->
+  mc_riak_doc_rw:write_json(Object, Metadata, Doc).
 
 %% ====================================================================
 %% unit tests
@@ -307,7 +250,7 @@ maybe_start_network() ->
             X
     end.
 
-mc_riak_obj_test_() ->
+mc_riak_doc_test_() ->
     {setup,
      fun() ->
          ok = maybe_start_network(),
@@ -321,11 +264,11 @@ mc_riak_obj_test_() ->
                  pang ->
                      []; %% {skipped, need_live_server};
                  pong ->
-                     live_node_tests()
+                     mc_riak_doc_tests()
              end
      end}}.
 
-live_node_tests() ->
+mc_riak_doc_tests() ->
     [
      {"new should return ok",
       ?_test(
