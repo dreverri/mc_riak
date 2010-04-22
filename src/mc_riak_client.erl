@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, get/3, put/2, delete/3]).
+-export([start_link/0, get/3, put/2, delete/3, call/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -43,6 +43,10 @@ put(Obj, Options) ->
 
 delete(Bucket, Key, Options) ->
   gen_server:call(?SERVER, {delete, [Bucket, Key, Options]}).
+
+%% Call any function from the wrapped socket
+call(Fun, Args) ->
+  gen_server:call(?SERVER, {Fun, Args}).
 
 %%%===================================================================
 %%% gen_server callbacks
