@@ -18,7 +18,9 @@
          remove/3,
          list/1,
          save/1,
-         save/2]).
+         save/2,
+         delete/1,
+         delete/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -26,6 +28,7 @@
 
 -define(SERVER, ?MODULE).
 -define(BUCKET, <<"mc_riak_doc_list">>).
+-define(TAG, <<"mc_riak_doc_list">>).
 
 -record(state, {object, list = [], metadata = dict:new()}).
 
@@ -68,6 +71,14 @@ save(Pid) ->
 
 save(Pid, Options) ->
   gen_server:call(Pid, {save, Options}).
+
+%% Delete the list
+%% gen_server will stop after a delete
+delete(Pid) ->
+  delete(Pid, []).
+
+delete(Pid, Options) ->
+  gen_server:call(Pid, {delete, Options}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -118,6 +129,10 @@ handle_call({save, Options}, _From, State=#state{list=L, object=O, metadata=M}) 
   {ok, O2} = mc_riak_client:put(O1, [return_body|Options]),
   {M1, L1} = read_content(O2),
   {reply, ok, State#state{list=L1, object=O2, metadata=M1}};
+
+handle_call({delete, Options}, _From, State=#state{object=Object}) ->
+  Key = riakc_obj:key(Object),
+  {stop, normal, mc_riak_client:delete(?BUCKET, Key, Options), State};
 
 handle_call(_Request, _From, State) ->
   Reply = ok,
@@ -209,7 +224,7 @@ extract_elements(List) ->
   [Elem ||{_, add, Elem} <-List].
 
 make_links(List) ->
-  [{BK,<<"mc_riak_doc_list">>} || BK <- List].
+  [{BK,?TAG} || BK <- List].
 
 write_content(Object, Metadata, List) ->
   L1 = merge_list(List),
@@ -287,6 +302,8 @@ mc_riak_doc_list_test_() ->
              end
      end}}.
 
+%% TODO: Figure out how to test sibling merges
+%% - Currently only using one socket with a single clientid
 mc_riak_doc_list_tests() ->
     [
      {"new should return {ok, Pid}",
@@ -332,9 +349,13 @@ mc_riak_doc_list_tests() ->
          begin
            reset_riak(),
            {ok, Pid} = ?MODULE:new(<<"listname">>),
+           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key1">>),
+           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key2">>),
            ok = ?MODULE:save(Pid),
            {ok, Pid1} = ?MODULE:open(<<"listname">>),
-           [] = ?MODULE:list(Pid1)
+           L = ?MODULE:list(Pid1),
+           ?assert(lists:member({<<"bucket">>,<<"key1">>}, L)),
+           ?assert(lists:member({<<"bucket">>,<<"key2">>}, L))
          end)},
 
      {"open should return {error, notfound} for non-existing documents",
@@ -342,6 +363,42 @@ mc_riak_doc_list_tests() ->
          begin
            reset_riak(),
            {error, notfound} = ?MODULE:open(<<"notfound">>)
+         end)},
+
+     {"Links header should contain bucket, key, tag",
+      ?_test(
+         begin
+           reset_riak(),
+           {ok, Pid} = ?MODULE:new(<<"listname">>),
+           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key1">>),
+           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key2">>),
+           ok = ?MODULE:save(Pid),
+           {ok, O} = mc_riak_client:get(?BUCKET, <<"listname">>, []),
+           [{M, _}|_] = riakc_obj:get_contents(O),
+           Links = dict:fetch(<<"Links">>,M),
+           ?assert(lists:member({{<<"bucket">>,<<"key1">>},?TAG}, Links)),
+           ?assert(lists:member({{<<"bucket">>,<<"key2">>},?TAG}, Links))
+         end)},
+
+     {"remove should remove elements from the list",
+      ?_test(
+         begin
+           reset_riak(),
+           {ok, Pid} = ?MODULE:new(<<"listname">>),
+           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key1">>),
+           ok = ?MODULE:remove(Pid, <<"bucket">>, <<"key1">>),
+           [] = ?MODULE:list(Pid)
+         end)},
+
+     {"delete should delete the list",
+      ?_test(
+         begin
+           reset_riak(),
+           {ok, Pid} = ?MODULE:new(<<"list">>),
+           ok = ?MODULE:save(Pid),
+           {ok, _} = ?MODULE:open(<<"list">>),
+           ok = ?MODULE:delete(Pid),
+           {error, notfound} = ?MODULE:open(<<"list">>)
          end)}
      ].
 
