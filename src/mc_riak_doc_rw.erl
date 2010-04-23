@@ -10,7 +10,7 @@
 -module(mc_riak_doc_rw).
 
 %% API
--export([write_json/3, read_json/1]).
+-export([write_json/3, read_json/1, sort_contents/1]).
 
 %%%===================================================================
 %%% API
@@ -21,8 +21,11 @@ write_json(Object, Metadata, Doc) ->
   riakc_obj:update_metadata(O1, Metadata).
 
 read_json(Object) ->
-  {M, V} = hd(lists:sort(fun compare_content_dates/2, riakc_obj:get_contents(Object))),
+  {M, V} = hd(sort_contents(riakc_obj:get_contents(Object))),
   {M, decode_json(V)}.
+
+sort_contents(Contents) ->
+  lists:sort(fun compare_content_dates/2, Contents).
 
 %%--------------------------------------------------------------------
 %% @doc
