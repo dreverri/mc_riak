@@ -12,15 +12,19 @@
 
 %% API
 -export([new/2,
-         open/2,
-         open/3,
-         set/3,
-         set_from_list/2,
-         get/2,
-         save/1,
-         save/2,
-         delete/1,
-         delete/2]).
+        open/2,
+        open/3,
+        set/3,
+        set_from_list/2,
+        get/2,
+        save/1,
+        save/2,
+        delete/1,
+        delete/2,
+        add_link/2,
+        add_link/4,
+        remove_link/2,
+        remove_link/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -28,7 +32,7 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {doc = dict:new(), metadata = dict:new(), object}).
+-record(state, {doc = dict:new(), metadata = dict:new(), object, links = []}).
 
 %%%===================================================================
 %%% API
@@ -78,6 +82,20 @@ delete(Pid) ->
 delete(Pid, Options) ->
   gen_server:call(Pid, {delete, Options}).
 
+%% Add link
+add_link(Pid, Bucket, Key, Tag) ->
+  add_link(Pid, {{Bucket, Key},Tag}).
+
+add_link(Pid, Link) ->
+  gen_server:call(Pid, {add_link, Link}).
+
+%% Remove link
+remove_link(Pid, Bucket, Key, Tag) ->
+  remove_link(Pid, {{Bucket,Key},Tag}).
+
+remove_link(Pid, Link) ->
+  gen_server:call(Pid, {remove_link, Link}).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -98,7 +116,8 @@ init([new, O]) ->
 
 init([open, O]) ->
   {M, D} = read_content(O),
-  {ok, #state{doc=D, metadata=M, object=O}};
+  L = get_links(M),
+  {ok, #state{doc=D, metadata=M, object=O, links=L}};
 
 init([]) ->
   {ok, #state{}}.
@@ -136,16 +155,26 @@ handle_call({get, Key}, _From, State=#state{doc=Doc}) ->
 %% Send object to riak (return_body reads the write)
 %% Merge the returned contents
 %% Update State
-handle_call({save, Options}, _From, State=#state{doc=Doc, metadata=Metadata, object=Object}) ->
-  O1 = write_content(Object, Metadata, Doc),
+handle_call({save, Options}, _From, State=#state{doc=Doc, metadata=Metadata, object=Object, links=Links}) ->
+  M0 = dict:store(<<"Links">>, Links, Metadata),
+  O1 = write_content(Object, M0, Doc),
   {ok, O2} = mc_riak_client:put(O1, [return_body|Options]),
   {M1, D1} = read_content(O2),
-  {reply, ok, State#state{doc=D1, metadata=M1, object=O2}};
+  L1 = get_links(M1),
+  {reply, ok, State#state{doc=D1, metadata=M1, object=O2, links=L1}};
 
 handle_call({delete, Options}, _From, State=#state{object=Object}) ->
   Bucket = riakc_obj:bucket(Object),
   Key = riakc_obj:key(Object),
   {stop, normal, mc_riak_client:delete(Bucket, Key, Options), State};
+
+handle_call({add_link, Link}, _From, State=#state{links=Links}) ->
+  Links1 = lists:usort([Link|Links]),
+  {reply, ok, State#state{links=Links1}};
+
+handle_call({remove_link, Link}, _From, State=#state{links=Links}) ->
+  Links1 = lists:delete(Link, Links),
+  {reply, ok, State#state{links=Links1}};
 
 handle_call(_Request, _From, State) ->
   Reply = ok,
@@ -212,6 +241,12 @@ read_content(Object) ->
 
 write_content(Object, Metadata, Doc) ->
   mc_riak_doc_rw:write_json(Object, Metadata, Doc).
+
+get_links(Metadata) ->
+  case dict:find(<<"Links">>, Metadata) of
+    {ok, Value} -> Value;
+    _ -> []
+  end.
 
 %% ====================================================================
 %% unit tests
@@ -338,6 +373,32 @@ mc_riak_doc_tests() ->
            ok = ?MODULE:save(Pid),
            ok = ?MODULE:delete(Pid),
            {error, notfound} = ?MODULE:open(<<"bucket">>,<<"key">>)
+         end)},
+
+     {"add_link should add a link to the document",
+      ?_test(
+         begin
+           reset_riak(),
+           {ok, Pid} = ?MODULE:new(<<"bucket">>,<<"key">>),
+           ok = ?MODULE:add_link(Pid, {{<<"bucket">>,<<"key">>},<<"tag">>}),
+           ok = ?MODULE:save(Pid),
+           {ok, O} = mc_riak_client:get(<<"bucket">>, <<"key">>, []),
+           M = riakc_obj:get_metadata(O),
+           [{{<<"bucket">>,<<"key">>},<<"tag">>}] = dict:fetch(<<"Links">>, M)
+         end)},
+
+     {"remove_link should remove a link from the document",
+      ?_test(
+         begin
+           reset_riak(),
+           {ok, Pid} = ?MODULE:new(<<"bucket">>,<<"key">>),
+           ok = ?MODULE:add_link(Pid, {{<<"bucket">>,<<"key">>},<<"tag">>}),
+           ok = ?MODULE:save(Pid),
+           ok = ?MODULE:remove_link(Pid, {{<<"bucket">>,<<"key">>},<<"tag">>}),
+           ok = ?MODULE:save(Pid),
+           {ok, O} = mc_riak_client:get(<<"bucket">>, <<"key">>, []),
+           M = riakc_obj:get_metadata(O),
+           ?assertException(error, badarg, dict:fetch(<<"Links">>, M))
          end)}
      ].
 
