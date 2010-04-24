@@ -1,6 +1,12 @@
-Wrapper around Riak protobuffs client.
+MC Riak
+========
+Wrapper around Riak protobuffs client
+
+Document values are encoded in JSON. MC Riak assumes a document will have
+siblings and currently uses the sibling most recently modified.
 
 Usage:
+-------
 
 	%% Create a new document
 	{ok, D} = mc_riak_doc:new(<<"B">>,<<"K">>),
@@ -23,8 +29,3 @@ Usage:
 
 	%% Delete the document
 	ok = mc_riak_doc:delete(D1)
-
-Details:
-
-	Document values are encoded in JSON. McRiak assumes a document will have siblings and
-	currently uses the sibling most recently modified.
