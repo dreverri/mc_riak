@@ -31,6 +31,7 @@
 -export([new/2,
         open/2,
         open/3,
+        read/1,
         set/3,
         set_from_list/2,
         get/2,
@@ -59,7 +60,7 @@
 %% Create a new document
 new(B, K) ->
   O = riakc_obj:new(B, K),
-  gen_server:start_link(?MODULE, [new, O], []).
+  gen_server:start_link(?MODULE, [O], []).
 
 %% Open an existing document
 open(B, K) ->
@@ -68,9 +69,12 @@ open(B, K) ->
 open(B, K, Options) ->
   case mc_riak_client:get(B, K, Options) of
     {ok, O} ->
-      gen_server:start_link(?MODULE, [open, O], []);
+      gen_server:start_link(?MODULE, [O], []);
     Other -> Other
   end.
+
+read(Pid) ->
+  gen_server:call(Pid, read).
 
 %% Set a key/value pair for the document. Key and value must be JSON encodable
 set(Pid, Key, Value) ->
@@ -128,13 +132,8 @@ remove_link(Pid, Link) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([new, O]) ->
+init([O]) ->
   {ok, #state{object=O}};
-
-init([open, O]) ->
-  {M, D} = read_content(O),
-  L = get_links(M),
-  {ok, #state{doc=D, metadata=M, object=O, links=L}};
 
 init([]) ->
   {ok, #state{}}.
@@ -154,6 +153,11 @@ init([]) ->
 %% @end
 %%--------------------------------------------------------------------
 %% Object values are stored in a dict and converted to a proplist later
+handle_call(read, _From, State=#state{object=O}) ->
+  {M, D} = read_content(O),
+  L = get_links(M),
+  {reply, ok, State#state{doc=D, metadata=M, links=L}};
+
 handle_call({set, Key, Value}, _From, State=#state{doc=Doc0}) ->
     Doc1 = dict:store(Key, Value, Doc0),
     {reply, ok, State#state{doc=Doc1}};
@@ -361,7 +365,7 @@ mc_riak_doc_tests() ->
            {ok, <<"value">>} = ?MODULE:get(Pid, <<"property">>)
          end)},
 
-     {"get should fetch property values of opened document",
+     {"get should fetch property values of opened and read document",
       ?_test(
          begin
            reset_riak(),
@@ -369,6 +373,7 @@ mc_riak_doc_tests() ->
            ok = ?MODULE:set(Pid, <<"property">>, <<"value">>),
            ok = ?MODULE:save(Pid),
            {ok, Pid1} = ?MODULE:open(<<"bucket">>, <<"key">>),
+           ok = ?MODULE:read(Pid1),
            {ok, <<"value">>} = ?MODULE:get(Pid1, <<"property">>)
          end)},
 
@@ -416,6 +421,31 @@ mc_riak_doc_tests() ->
            {ok, O} = mc_riak_client:get(<<"bucket">>, <<"key">>, []),
            M = riakc_obj:get_metadata(O),
            ?assertException(error, badarg, dict:fetch(<<"Links">>, M))
+         end)},
+
+     {"getting a property of an unread document should return an error",
+      ?_test(
+         begin
+           reset_riak(),
+           {ok, Pid} = ?MODULE:new(<<"bucket">>,<<"key">>),
+           ok = ?MODULE:set(Pid, <<"property">>, <<"value">>),
+           ok = ?MODULE:save(Pid),
+           {ok, Pid1} = ?MODULE:open(<<"bucket">>,<<"key">>),
+           ?assertEqual(error, ?MODULE:get(Pid1, <<"property">>))
+         end)},
+
+     {"saving an unread document should clear its contents",
+      ?_test(
+         begin
+           reset_riak(),
+           {ok, Pid} = ?MODULE:new(<<"bucket">>,<<"key">>),
+           ok = ?MODULE:set(Pid, <<"property">>, <<"value">>),
+           ok = ?MODULE:save(Pid),
+           {ok, Pid1} = ?MODULE:open(<<"bucket">>,<<"key">>),
+           ok = ?MODULE:save(Pid1),
+           {ok, Pid2} = ?MODULE:open(<<"bucket">>,<<"key">>),
+           ok = ?MODULE:read(Pid2),
+           ?assertEqual(error, ?MODULE:get(Pid2, <<"property">>))
          end)}
      ].
 
