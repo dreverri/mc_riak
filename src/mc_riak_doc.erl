@@ -29,20 +29,22 @@
 
 %% API
 -export([new/2,
-        open/2,
-        open/3,
-        read/1,
-        set/3,
-        set_from_list/2,
-        get/2,
-        save/1,
-        save/2,
-        delete/1,
-        delete/2,
-        add_link/2,
-        add_link/4,
-        remove_link/2,
-        remove_link/4]).
+         open/2,
+         open/3,
+         read/1,
+         set/3,
+         set_from_list/2,
+         get/2,
+         to_list/1,
+         save/1,
+         save/2,
+         delete/1,
+         delete/2,
+         add_link/2,
+         add_link/4,
+         remove_link/2,
+         remove_link/4
+        ]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -86,6 +88,9 @@ set_from_list(Pid, List) ->
 %% Get the value of a key in the document
 get(Pid, Key) ->
   gen_server:call(Pid, {get, Key}).
+
+to_list(Pid) ->
+  gen_server:call(Pid, to_list).
 
 %% Save the document
 %% This function will read it's write and update the document to reflect any changes
@@ -171,6 +176,9 @@ handle_call({set_from_list, List}, _From, State=#state{doc=Doc0}) ->
 
 handle_call({get, Key}, _From, State=#state{doc=Doc}) ->
   {reply, dict:find(Key, Doc), State};
+
+handle_call(to_list, _From, State=#state{doc=Doc}) ->
+  {reply, dict:to_list(Doc), State};
 
 %% Update object contents
 %% Send object to riak (return_body reads the write)
@@ -446,6 +454,15 @@ mc_riak_doc_tests() ->
            {ok, Pid2} = ?MODULE:open(<<"bucket">>,<<"key">>),
            ok = ?MODULE:read(Pid2),
            ?assertEqual(error, ?MODULE:get(Pid2, <<"property">>))
+         end)},
+
+     {"to_list should return a proplist",
+      ?_test(
+         begin
+           reset_riak(),
+           {ok, Pid} = ?MODULE:new(<<"bucket">>,<<"key">>),
+           ok = ?MODULE:set(Pid, <<"property">>, <<"value">>),
+           ?assertEqual([{<<"property">>,<<"value">>}], ?MODULE:to_list(Pid))
          end)}
      ].
 
