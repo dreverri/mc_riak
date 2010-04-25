@@ -28,10 +28,13 @@
 -behaviour(gen_server).
 
 %% API
--export([new/2,
+-export([
+         new/1,
+         new/2,
          open/2,
          open/3,
          read/1,
+         key/1,
          set/3,
          set_from_list/2,
          get/2,
@@ -61,9 +64,17 @@
 
 %% @doc
 %% Create a new document
+new(B) ->
+  K = list_to_binary(mc_riak_util:unique_id_62()),
+  new(B, K).
+  
 new(B, K) ->
   O = riakc_obj:new(B, K),
   gen_server:start_link(?MODULE, [O], []).
+
+%% Return the key of the document
+key(Pid) ->
+  gen_server:call(Pid, key).
 
 %% Open an existing document
 open(B, K) ->
@@ -167,6 +178,9 @@ handle_call(read, _From, State=#state{object=O}) ->
   {M, D} = read_content(O),
   L = get_links(M),
   {reply, ok, State#state{doc=D, metadata=M, links=L}};
+  
+handle_call(key, _From, State=#state{object=O}) ->
+  {reply, riakc_obj:key(O), State};
 
 handle_call({set, Key, Value}, _From, State=#state{doc=Doc0}) ->
     Doc1 = dict:store(Key, Value, Doc0),
@@ -343,6 +357,12 @@ mc_riak_doc_test_() ->
 
 mc_riak_doc_tests() ->
     [
+    {"new/1 should return ok",
+     ?_test(
+        begin
+          {ok, _} = ?MODULE:new(<<"bucket">>)
+        end)},
+
      {"new should return ok",
       ?_test(
          begin
@@ -362,7 +382,16 @@ mc_riak_doc_tests() ->
            {ok, Pid} = ?MODULE:new(<<"bucket">>,<<"key">>),
            ok = ?MODULE:save(Pid)
          end)},
-
+         
+     {"key should return Key",
+      ?_test(
+         begin
+           {ok, Pid} = ?MODULE:new(<<"bucket">>),
+           K = ?MODULE:key(Pid),
+           ok = ?MODULE:save(Pid),
+           {ok, _} = ?MODULE:open(<<"bucket">>, K)
+         end)},
+         
      {"open should return {ok, Pid}",
       ?_test(
          begin

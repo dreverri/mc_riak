@@ -8,7 +8,8 @@
              mc_riak_client,
 	     mc_riak_doc,
 	     mc_riak_doc_rw,
-	     mc_riak_doc_list
+	     mc_riak_doc_list,
+	     mc_riak_util
             ]},
   {registered, []},
   {applications, [
