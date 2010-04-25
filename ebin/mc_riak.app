@@ -3,6 +3,7 @@
   {description, ""},
   {vsn, "1"},
   {modules, [
+	    mc_riak,
              mc_riak_app,
              mc_riak_sup,
              mc_riak_client,
@@ -15,7 +16,9 @@
   {registered, []},
   {applications, [
                   kernel,
-                  stdlib
+                  stdlib,
+		  sasl,
+		  ibrowse
                  ]},
   {mod, { mc_riak_app, []}},
   {env, []}
