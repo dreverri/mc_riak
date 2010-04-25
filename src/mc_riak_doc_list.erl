@@ -31,8 +31,10 @@
 -export([new/1,
          open/1,
          open/2,
-         add/3,
-         remove/3,
+         add_doc/3,
+         add/2,
+         remove_doc/3,
+         remove/2,
          list/1,
          save/1,
          save/2,
@@ -74,11 +76,17 @@ open(Name, Options) ->
     Other -> Other
   end.
 
-add(Pid, Bucket, Key) ->
-  gen_server:call(Pid, {add, {Bucket, Key}}).
+add_doc(Pid, Bucket, Key) ->
+  add(Pid, {Bucket, Key}).
 
-remove(Pid, Bucket, Key) ->
-  gen_server:call(Pid, {remove, {Bucket, Key}}).
+add(Pid, Elem) ->
+  gen_server:call(Pid, {add, Elem}).
+
+remove_doc(Pid, Bucket, Key) ->
+  remove(Pid, {Bucket, Key}).
+
+remove(Pid, Elem) ->
+  gen_server:call(Pid, {remove, Elem}).
 
 list(Pid) ->
   gen_server:call(Pid, list).
@@ -333,22 +341,22 @@ mc_riak_doc_list_tests() ->
       ?_test(
          begin
            {ok, Pid} = ?MODULE:new(<<"listname">>),
-           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key">>)
+           ok = ?MODULE:add(Pid, {<<"bucket">>, <<"key">>})
          end)},
 
      {"remove should return ok",
       ?_test(
          begin
            {ok, Pid} = ?MODULE:new(<<"listname">>),
-           ok = ?MODULE:remove(Pid, <<"bucket">>, <<"key">>)
+           ok = ?MODULE:remove(Pid, {<<"bucket">>, <<"key">>})
          end)},
 
      {"list should return [Elements]",
       ?_test(
          begin
            {ok, Pid} = ?MODULE:new(<<"listname">>),
-           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key1">>),
-           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key2">>),
+           ok = ?MODULE:add_doc(Pid, <<"bucket">>, <<"key1">>),
+           ok = ?MODULE:add_doc(Pid, <<"bucket">>, <<"key2">>),
            L = ?MODULE:list(Pid),
            ?assert(lists:member({<<"bucket">>,<<"key1">>}, L)),
            ?assert(lists:member({<<"bucket">>,<<"key2">>}, L))
@@ -366,8 +374,8 @@ mc_riak_doc_list_tests() ->
          begin
            reset_riak(),
            {ok, Pid} = ?MODULE:new(<<"listname">>),
-           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key1">>),
-           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key2">>),
+           ok = ?MODULE:add_doc(Pid, <<"bucket">>, <<"key1">>),
+           ok = ?MODULE:add_doc(Pid, <<"bucket">>, <<"key2">>),
            ok = ?MODULE:save(Pid),
            {ok, Pid1} = ?MODULE:open(<<"listname">>),
            L = ?MODULE:list(Pid1),
@@ -387,8 +395,8 @@ mc_riak_doc_list_tests() ->
          begin
            reset_riak(),
            {ok, Pid} = ?MODULE:new(<<"listname">>),
-           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key1">>),
-           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key2">>),
+           ok = ?MODULE:add_doc(Pid, <<"bucket">>, <<"key1">>),
+           ok = ?MODULE:add_doc(Pid, <<"bucket">>, <<"key2">>),
            ok = ?MODULE:save(Pid),
            {ok, O} = mc_riak_client:get(?BUCKET, <<"listname">>, []),
            [{M, _}|_] = riakc_obj:get_contents(O),
@@ -402,8 +410,8 @@ mc_riak_doc_list_tests() ->
          begin
            reset_riak(),
            {ok, Pid} = ?MODULE:new(<<"listname">>),
-           ok = ?MODULE:add(Pid, <<"bucket">>, <<"key1">>),
-           ok = ?MODULE:remove(Pid, <<"bucket">>, <<"key1">>),
+           ok = ?MODULE:add_doc(Pid, <<"bucket">>, <<"key1">>),
+           ok = ?MODULE:remove_doc(Pid, <<"bucket">>, <<"key1">>),
            [] = ?MODULE:list(Pid)
          end)},
 
