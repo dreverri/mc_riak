@@ -36,6 +36,7 @@
          set_from_list/2,
          get/2,
          to_list/1,
+         to_json/1,
          save/1,
          save/2,
          delete/1,
@@ -91,6 +92,10 @@ get(Pid, Key) ->
 
 to_list(Pid) ->
   gen_server:call(Pid, to_list).
+  
+%% Return an object as JSON
+to_json(Pid) ->
+  gen_server:call(Pid, to_json).
 
 %% Save the document
 %% This function will read it's write and update the document to reflect any changes
@@ -179,6 +184,10 @@ handle_call({get, Key}, _From, State=#state{doc=Doc}) ->
 
 handle_call(to_list, _From, State=#state{doc=Doc}) ->
   {reply, dict:to_list(Doc), State};
+  
+handle_call(to_json, _From, State=#state{doc=Doc}) ->
+  Json = {struct, dict:to_list(Doc) },
+  {reply, mochijson2:encode(Json), State};
 
 %% Update object contents
 %% Send object to riak (return_body reads the write)
@@ -455,14 +464,23 @@ mc_riak_doc_tests() ->
            ok = ?MODULE:read(Pid2),
            ?assertEqual(error, ?MODULE:get(Pid2, <<"property">>))
          end)},
-
-     {"to_list should return a proplist",
+     {"to_json should return valid JSON",
       ?_test(
          begin
            reset_riak(),
            {ok, Pid} = ?MODULE:new(<<"bucket">>,<<"key">>),
            ok = ?MODULE:set(Pid, <<"property">>, <<"value">>),
            ?assertEqual([{<<"property">>,<<"value">>}], ?MODULE:to_list(Pid))
+         end)}, 
+             
+     {"to_list should return a proplist",
+      ?_test(
+         begin
+           reset_riak(),
+           {ok, Pid} = ?MODULE:new(<<"bucket">>,<<"key">>),
+           ok = ?MODULE:set(Pid, <<"property">>, <<"value">>),
+           Json = mochijson2:encode({struct, [{<<"property">>,<<"value">>}]}),
+           ?assertEqual(Json, ?MODULE:to_json(Pid))
          end)}
      ].
 
