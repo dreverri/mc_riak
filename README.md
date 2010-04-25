@@ -24,6 +24,9 @@ Usage:
 	%% Open the document later
 	{ok, D1} = mc_riak_doc:open(<<"B">>,<<"K">>),
 
+	%% Read the document
+	ok = mc_riak_doc:read(D1),
+
 	%% Get a property from the document
 	Author = mc_riak_doc:get(D1, <<"author">>),
 
