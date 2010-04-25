@@ -9,7 +9,8 @@
 	     mc_riak_doc,
 	     mc_riak_doc_rw,
 	     mc_riak_doc_list,
-	     mc_riak_util
+	     mc_riak_util,
+	     mc_riak_elastic_search
             ]},
   {registered, []},
   {applications, [
