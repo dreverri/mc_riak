@@ -16,7 +16,8 @@
          index/4,
          get/3,
          delete/3,
-         search/3
+         search/3,
+         search_dsl/3
         ]).
 
 %% curl -XPUT 'http://localhost:9200/twitter/' -d '
@@ -68,6 +69,9 @@ delete(Index, Type, Id) ->
 %% curl -XGET 'http://localhost:9200/twitter/tweet/_search?q=user:kimchy'
 search(Index, Type, Query) ->
   ibrowse:send_req(?URL ++ "/" ++ Index ++ "/" ++ Type ++ "/_search?q=" ++ Query, [], get).
+
+search_dsl(Index, Type, Query) ->
+  ibrowse:send_req(?URL ++ "/" ++ Index ++ "/" ++ Type ++ "/_search", [], get, Query).
 
 
 -ifdef(TEST).
@@ -181,6 +185,19 @@ mc_riak_elastic_search_tests() ->
            index_test_doc(),
            refresh_test_index(),
            {ok, "200", _, Body} = search(?TEST_INDEX, ?TEST_TYPE, "key:value"),
+           {struct, Results} = mochijson2:decode(Body),
+           {struct, HitResults} = proplists:get_value(<<"hits">>, Results),
+           ?assertEqual(1, proplists:get_value(<<"total">>, HitResults))
+         end)},
+
+     {"search_dsl",
+      ?_test(
+         begin
+           reset(),
+           index_test_doc(),
+           refresh_test_index(),
+           Query = {struct, [{<<"query">>, {struct, [{<<"term">>, {struct, [{<<"key">>, <<"value">>}]}}]}}]},
+           {ok, "200", _, Body} = search_dsl(?TEST_INDEX, ?TEST_TYPE, mochijson2:encode(Query)),
            {struct, Results} = mochijson2:decode(Body),
            {struct, HitResults} = proplists:get_value(<<"hits">>, Results),
            ?assertEqual(1, proplists:get_value(<<"total">>, HitResults))
